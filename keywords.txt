@@ -1,0 +1,12 @@
+gpsManagedRtc	KEYWORD1
+
+//Setup
+begin	KEYWORD2
+gpsPins	KEYWORD2
+gpsBaud	KEYWORD2
+configureTimeZone	KEYWORD2
+timeIsGood	KEYWORD2
+debug	KEYWORD2
+housekeeping
+
+//constant	KEYWORD3
