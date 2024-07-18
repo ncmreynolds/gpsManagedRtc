@@ -25,7 +25,7 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::begin() {
 		debugStream->print(F("Setting up RTC:"));
 	}
 	if(rtc.begin() == true) {
-		rtcInitialised = true;
+		_rtcInitialised = true;
 		if(debugStream != nullptr) {
 			debugStream->println(F("OK"));
 		}
@@ -39,8 +39,8 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::begin() {
 	if(debugStream != nullptr) {
 		debugStream->print(F("Setting up GPS:"));
 	}
-	if(gpsRxPin != -1) {
-		Serial1.begin(GPSBaud, SERIAL_8N1, gpsRxPin, gpsTxPin);
+	if(_gpsRxPin != -1) {
+		Serial1.begin(_gpsBaud, SERIAL_8N1, _gpsRxPin, _gpsTxPin);
 		if(debugStream != nullptr) {
 			debugStream->println(F("OK"));
 		}
@@ -56,62 +56,61 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::debug(Stream &debugDestination) {
 }
 
 void ICACHE_FLASH_ATTR gpsManagedRtc::gpsPins(int rxPin, int txPin) {
-	gpsRxPin = rxPin;
-	gpsTxPin = txPin;
+	_gpsRxPin = rxPin;
+	_gpsTxPin = txPin;
 }
 
 void ICACHE_FLASH_ATTR gpsManagedRtc::gpsBaud(uint32_t baud) {
-	GPSBaud = baud;
+	_gpsBaud = baud;
 }
 
 void ICACHE_FLASH_ATTR gpsManagedRtc::housekeeping() {
 	bool timeSet = false;
 	if(Serial1.available()) {
-		gpsUpdateTimer = millis();
-		while(Serial1.available() > 0 && millis() - gpsUpdateTimer < 50) {
+		_gpsUpdateTimer = millis();
+		while(Serial1.available() > 0 && millis() - _gpsUpdateTimer < 50) {
 			gps.encode(Serial1.read());
 		}
 	}
 	if(gps.date.isValid()) {
-	  gpsDay = gps.date.day();
-	  gpsMonth = gps.date.month();
-	  gpsYear = gps.date.year();
+	  _gpsDay = gps.date.day();
+	  _gpsMonth = gps.date.month();
+	  _gpsYear = gps.date.year();
 	}
 	if(gps.time.isValid()) {
-	  gpsSeconds = gps.time.second();
-	  gpsMinutes = gps.time.minute();
-	  gpsHours = gps.time.hour();
+	  _gpsSeconds = gps.time.second();
+	  _gpsMinutes = gps.time.minute();
+	  _gpsHours = gps.time.hour();
 	}
-	if(gpsInitialised == false && gps.date.isValid() && gps.time.isValid()) {
+	if(_gpsInitialised == false && gps.date.isValid() && gps.time.isValid()) {
 		if(debugStream != nullptr) {
 			debugStream->println(F("GPS got fix"));
 		}
-		gpsInitialised = true;
+		_gpsInitialised = true;
 	}
-	if(millis() - updateTimer > updateInterval || timeIsGood() == false) {
-		updateTimer = millis();
-		if(rtcInitialised == true) {
+	if(millis() - _updateTimer > _updateInterval || timeIsGood() == false) {
+		_updateTimer = millis();
+		if(_rtcInitialised == true) {
 			if(rtc.updateTime()) { //Updates the time variables from RTC
-				rtcSeconds = rtc.getSeconds();
-				rtcMinutes = rtc.getMinutes();
-				rtcHours = rtc.getHours();
-				rtcWeekday = rtc.getWeekday();
-				rtcDay = rtc.getDate();
-				rtcMonth = rtc.getMonth();
-				rtcYear = rtc.getYear();
+				_rtcSeconds = rtc.getSeconds();
+				_rtcMinutes = rtc.getMinutes();
+				_rtcHours = rtc.getHours();
+				_rtcDay = rtc.getDate();
+				_rtcMonth = rtc.getMonth();
+				_rtcYear = rtc.getYear();
 			}
 			if(gpsTimeIsGood()) {
-				if(rtcInitialised == true && rtcOutOfSyncWithGps()) {
+				if(_rtcInitialised == true && (rtcTimeIsGood() == false || _preferGps == true) && rtcOutOfSyncWithGps()) {
 					setRtcFromGps();
 				}
-				if(preferGps == true) {
+				if(_preferGps == true) {
 					if(systemOutOfSyncWithGps()) {
 						setSystemTimeFromGps();
 						timeSet = true;
 					}
 				}
 			}
-			if(timeSet == false) {
+			if(rtcTimeIsGood() == true && timeSet == false) {
 				if(systemOutOfSyncWithRtc()) {
 					setSystemTimeFromRtc();
 					timeSet = true;
@@ -141,25 +140,25 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::housekeeping() {
 				}
 				tm *localTimeInfo = localtime(&now);	//Including DST and time zone adjustments
 				debugStream->print(F("RTC(UTC) - "));
-				if(rtcYear > 2016) {
-					printTime(rtcHours, rtcMinutes, rtcSeconds, rtcDay, rtcMonth, rtcYear);
+				if(_rtcYear > _earliestValidYear) {
+					printTime(_rtcHours, _rtcMinutes, _rtcSeconds, _rtcDay, _rtcMonth, _rtcYear);
 				} else {
 					debugStream->print(F("XX:XX:XX XX/XX/XXXX"));
 				}
 				debugStream->print(F(" GPS(UTC) - "));
-				if(gpsYear > 2016) {
-					printTime(gpsHours, gpsMinutes, gpsSeconds, gpsDay, gpsMonth, gpsYear);
+				if(_gpsYear > _earliestValidYear) {
+					printTime(_gpsHours, _gpsMinutes, _gpsSeconds, _gpsDay, _gpsMonth, _gpsYear);
 				} else {
 					debugStream->print(F("XX:XX:XX XX/XX/XXXX"));
 				}
 				debugStream->printf_P(PSTR(" Sat:%02u HDOP:%.1f SYS(UTC) - "),gps.satellites.value(), gps.hdop.hdop());
-				if(gmTimeInfo->tm_year +1900 > 2016) {
+				if(gmTimeInfo->tm_year +1900 > _earliestValidYear) {
 					printTime(gmTimeInfo->tm_hour, gmTimeInfo->tm_min, gmTimeInfo->tm_sec, gmTimeInfo->tm_mday, gmTimeInfo->tm_mon + 1,  gmTimeInfo->tm_year +1900);
 				} else {
 					debugStream->print(F("XX:XX:XX XX/XX/XXXX"));
 				}
 				debugStream->print(F(" SYS(Local) - "));
-				if(localTimeInfo->tm_year +1900 > 2016) {
+				if(localTimeInfo->tm_year +1900 > _earliestValidYear) {
 					printTime(localTimeInfo->tm_hour, localTimeInfo->tm_min, localTimeInfo->tm_sec, localTimeInfo->tm_mday, localTimeInfo->tm_mon + 1,  localTimeInfo->tm_year +1900);
 				} else {
 					debugStream->print(F("XX:XX:XX XX/XX/XXXX"));
@@ -173,24 +172,26 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::housekeeping() {
 }
 
 bool ICACHE_FLASH_ATTR gpsManagedRtc::timeIsGood() {
-	return (gpsInitialised == true && gpsYear > 2016) || (rtcInitialised == true && rtcYear > 2016);
+	return gpsTimeIsGood() || rtcTimeIsGood();
 }
 
 bool ICACHE_FLASH_ATTR gpsManagedRtc::gpsTimeIsGood() {
-	return gpsInitialised == true && gps.date.isValid() && gps.time.isValid() && gps.satellites.value() >= gpsSatellitesThreshold && gps.hdop.hdop() <= gpsHDOPThreshold && gpsYear > 2016 && gpsYear < 2080;	//Some cheap GPS seems to start reporting valid time at 2080 even without a good fix!
+	return _gpsInitialised == true && gps.date.isValid() && gps.time.isValid() && gps.satellites.value() >= _gpsSatellitesThreshold && gps.hdop.hdop() <= _gpsHdopThreshold && _gpsYear > _earliestValidYear && _gpsYear < _latestValidYear;	//Some cheap GPS seems to start reporting valid time at _latestValidYear even without a good fix!
 }
-
+bool ICACHE_FLASH_ATTR gpsManagedRtc::rtcTimeIsGood() {
+	return _rtcInitialised == true && _rtcYear > _earliestValidYear && _gpsYear < _latestValidYear;
+}
 void ICACHE_FLASH_ATTR gpsManagedRtc::setRtcFromGps() {
 	if(debugStream != nullptr) {
 		debugStream->print(F("Updating RTC from GPS:"));
 	}
 	if(
-		rtc.setSeconds(gpsSeconds) && 
-		rtc.setMinutes(gpsMinutes) && 
-		rtc.setHours(gpsHours) && 
-		rtc.setDate(gpsDay) && 
-		rtc.setMonth(gpsMonth) && 
-		rtc.setYear(gpsYear)) {
+		rtc.setSeconds(_gpsSeconds) && 
+		rtc.setMinutes(_gpsMinutes) && 
+		rtc.setHours(_gpsHours) && 
+		rtc.setDate(_gpsDay) && 
+		rtc.setMonth(_gpsMonth) && 
+		rtc.setYear(_gpsYear)) {
 		if(debugStream != nullptr) {
 			debugStream->println(F("OK"));
 		}
@@ -202,13 +203,13 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::setRtcFromGps() {
 }
 
 bool ICACHE_FLASH_ATTR gpsManagedRtc::rtcOutOfSyncWithGps() {
-	int32_t difference = compareTimes(rtcSeconds, rtcMinutes, rtcHours, rtcDay, rtcMonth, rtcYear, gpsSeconds, gpsMinutes, gpsHours, gpsDay, gpsMonth, gpsYear);
-	if(abs(difference) > timeUpdateThreshold) {
+	int32_t difference = compareTimes(_rtcSeconds, _rtcMinutes, _rtcHours, _rtcDay, _rtcMonth, _rtcYear, _gpsSeconds, _gpsMinutes, _gpsHours, _gpsDay, _gpsMonth, _gpsYear);
+	if(abs(difference) > _timeUpdateThreshold) {
 		if(debugStream != nullptr) {
 			debugStream->print(F("RTC ("));
-			printTime(rtcHours, rtcMinutes, rtcSeconds, rtcDay, rtcMonth, rtcYear);
+			printTime(_rtcHours, _rtcMinutes, _rtcSeconds, _rtcDay, _rtcMonth, _rtcYear);
 			debugStream->print(F(") out of sync with GPS ("));
-			printTime(gpsHours, gpsMinutes, gpsSeconds, gpsDay, gpsMonth, gpsYear);
+			printTime(_gpsHours, _gpsMinutes, _gpsSeconds, _gpsDay, _gpsMonth, _gpsYear);
 			debugStream->printf_P(PSTR(") by %is\r\n"), difference);
 		}
 		return true;
@@ -221,18 +222,18 @@ bool ICACHE_FLASH_ATTR gpsManagedRtc::systemOutOfSyncWithGps() {
 		setenv("TZ", "GMT0", 1);
 		tzset();
 	}
-	getLocalTime(&currentTimeInfo);
+	getLocalTime(&_currentTimeInfo);
 	if(_timezone != nullptr) {
 		setenv("TZ", _timezone, 1);
 		tzset();
 	}
-	int32_t difference = compareTimes(currentTimeInfo.tm_sec, currentTimeInfo.tm_min, currentTimeInfo.tm_hour, currentTimeInfo.tm_mday, currentTimeInfo.tm_mon + 1, currentTimeInfo.tm_year +1900, gpsSeconds, gpsMinutes, gpsHours, gpsDay, gpsMonth, gpsYear);
-	if(abs(difference) > timeUpdateThreshold) {
+	int32_t difference = compareTimes(_currentTimeInfo.tm_sec, _currentTimeInfo.tm_min, _currentTimeInfo.tm_hour, _currentTimeInfo.tm_mday, _currentTimeInfo.tm_mon + 1, _currentTimeInfo.tm_year +1900, _gpsSeconds, _gpsMinutes, _gpsHours, _gpsDay, _gpsMonth, _gpsYear);
+	if(abs(difference) > _timeUpdateThreshold) {
 		if(debugStream != nullptr) {
 			debugStream->print(F("System time ("));
-			printTime(currentTimeInfo.tm_hour, currentTimeInfo.tm_min, currentTimeInfo.tm_sec, currentTimeInfo.tm_mday, currentTimeInfo.tm_mon + 1, currentTimeInfo.tm_year +1900);
+			printTime(_currentTimeInfo.tm_hour, _currentTimeInfo.tm_min, _currentTimeInfo.tm_sec, _currentTimeInfo.tm_mday, _currentTimeInfo.tm_mon + 1, _currentTimeInfo.tm_year +1900);
 			debugStream->print(F(") out of sync with GPS ("));
-			printTime(gpsHours, gpsMinutes, gpsSeconds, gpsDay, gpsMonth, gpsYear);
+			printTime(_gpsHours, _gpsMinutes, _gpsSeconds, _gpsDay, _gpsMonth, _gpsYear);
 			debugStream->printf_P(PSTR(") by %is\r\n"), difference);
 		}
 		return true;
@@ -245,18 +246,18 @@ bool ICACHE_FLASH_ATTR gpsManagedRtc::systemOutOfSyncWithRtc() {
 		setenv("TZ", "GMT0", 1);
 		tzset();
 	}
-	getLocalTime(&currentTimeInfo);
+	getLocalTime(&_currentTimeInfo);
 	if(_timezone != nullptr) {
 		setenv("TZ", _timezone, 1);
 		tzset();
 	}
-	int32_t difference = compareTimes(currentTimeInfo.tm_sec, currentTimeInfo.tm_min, currentTimeInfo.tm_hour, currentTimeInfo.tm_mday, currentTimeInfo.tm_mon + 1, currentTimeInfo.tm_year +1900, rtcSeconds, rtcMinutes, rtcHours, rtcDay, rtcMonth, rtcYear);
-	if(abs(difference) > timeUpdateThreshold) {
+	int32_t difference = compareTimes(_currentTimeInfo.tm_sec, _currentTimeInfo.tm_min, _currentTimeInfo.tm_hour, _currentTimeInfo.tm_mday, _currentTimeInfo.tm_mon + 1, _currentTimeInfo.tm_year +1900, _rtcSeconds, _rtcMinutes, _rtcHours, _rtcDay, _rtcMonth, _rtcYear);
+	if(abs(difference) > _timeUpdateThreshold) {
 		if(debugStream != nullptr) {
 			debugStream->print(F("System time ("));
-			printTime(currentTimeInfo.tm_hour, currentTimeInfo.tm_min, currentTimeInfo.tm_sec, currentTimeInfo.tm_mday, currentTimeInfo.tm_mon + 1, currentTimeInfo.tm_year +1900);
+			printTime(_currentTimeInfo.tm_hour, _currentTimeInfo.tm_min, _currentTimeInfo.tm_sec, _currentTimeInfo.tm_mday, _currentTimeInfo.tm_mon + 1, _currentTimeInfo.tm_year +1900);
 			debugStream->print(F(") out of sync with RTC ("));
-			printTime(rtcHours, rtcMinutes, rtcSeconds, rtcDay, rtcMonth, rtcYear);
+			printTime(_rtcHours, _rtcMinutes, _rtcSeconds, _rtcDay, _rtcMonth, _rtcYear);
 			debugStream->printf_P(PSTR(") by %is\r\n"), difference);
 		}
 		return true;
@@ -273,12 +274,12 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::setSystemTimeFromGps() {
 		debugStream->print(F("Updating System time from GPS:"));
 	}
 	struct tm newTimeOfDay;
-	newTimeOfDay.tm_year = gpsYear - 1900;
-	newTimeOfDay.tm_mon = gpsMonth - 1;
-	newTimeOfDay.tm_mday = gpsDay;
-	newTimeOfDay.tm_hour = gpsHours;
-	newTimeOfDay.tm_min = gpsMinutes;
-	newTimeOfDay.tm_sec = gpsSeconds;
+	newTimeOfDay.tm_year = _gpsYear - 1900;
+	newTimeOfDay.tm_mon = _gpsMonth - 1;
+	newTimeOfDay.tm_mday = _gpsDay;
+	newTimeOfDay.tm_hour = _gpsHours;
+	newTimeOfDay.tm_min = _gpsMinutes;
+	newTimeOfDay.tm_sec = _gpsSeconds;
 	time_t t = mktime(&newTimeOfDay);
 	struct timeval now = { .tv_sec = t };
 	if(settimeofday(&now, NULL) == 0) {						
@@ -305,12 +306,12 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::setSystemTimeFromRtc() {
 		debugStream->print(F("Updating System time from RTC:"));
 	}
 	struct tm newTimeOfDay;
-	newTimeOfDay.tm_year = rtcYear - 1900;
-	newTimeOfDay.tm_mon = rtcMonth - 1;
-	newTimeOfDay.tm_mday = rtcDay;
-	newTimeOfDay.tm_hour = rtcHours;
-	newTimeOfDay.tm_min = rtcMinutes;
-	newTimeOfDay.tm_sec = rtcSeconds;
+	newTimeOfDay.tm_year = _rtcYear - 1900;
+	newTimeOfDay.tm_mon = _rtcMonth - 1;
+	newTimeOfDay.tm_mday = _rtcDay;
+	newTimeOfDay.tm_hour = _rtcHours;
+	newTimeOfDay.tm_min = _rtcMinutes;
+	newTimeOfDay.tm_sec = _rtcSeconds;
 	time_t t = mktime(&newTimeOfDay);
 	struct timeval now = { .tv_sec = t };
 	if(settimeofday(&now, NULL) == 0) {						
@@ -374,6 +375,14 @@ void ICACHE_FLASH_ATTR gpsManagedRtc::configureTimeZone(const char *tz)
 void ICACHE_FLASH_ATTR gpsManagedRtc::configureTimeZone(String tz)
 {
 	configureTimeZone(tz.c_str());
+}
+void ICACHE_FLASH_ATTR gpsManagedRtc::preferRtc()
+{
+	_preferGps = false;
+}
+void ICACHE_FLASH_ATTR gpsManagedRtc::preferGps()
+{
+	_preferGps = true;
 }
 
 

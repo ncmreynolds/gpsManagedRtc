@@ -6,6 +6,8 @@ gpsPins	KEYWORD2
 gpsBaud	KEYWORD2
 configureTimeZone	KEYWORD2
 timeIsGood	KEYWORD2
+preferRtc	KEYWORD2
+preferGps	KEYWORD2
 debug	KEYWORD2
 housekeeping
 
