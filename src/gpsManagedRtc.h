@@ -23,6 +23,8 @@ class gpsManagedRtc	{
 		void configureTimeZone(String tz);										//Time zones must be in IANA format eg. "GMT0BST,M3.5.0/1,M10.5.0", see https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv for a list
 		void begin();															//Start the gpsManagedRtc
 		bool timeIsGood();														//Is the system time good?
+		bool updateRtc(uint8_t hours, uint8_t minutes, uint8_t seconds,
+			uint8_t day, uint8_t month, uint16_t year);							//Force an update to the RTC
 		void preferRtc();														//Do not adjust RTC from GPS once initially set
 		void preferGps();														//Adjust RTC from GPS occasionally
 		void debug(Stream &);													//Start debugging on a stream
@@ -31,7 +33,7 @@ class gpsManagedRtc	{
 	private:
 		Stream *debugStream = nullptr;											//The stream used for the debugging
 		uint32_t _updateTimer = 0;												//Utility timer for the houskeeping function
-		uint32_t _updateInterval = 10E3;											//How often to consider updating the system time or RTC
+		uint32_t _updateInterval = 10E3;										//How often to consider updating the system time or RTC
 		uint32_t _timeUpdateThreshold = 3;										//Number of seconds to allow to drift before correcting
 		//RTC
 		RV3028 rtc;
